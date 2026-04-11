@@ -1,0 +1,430 @@
+openapi: 3.0.3
+info:
+  title: GNY DNS API
+  description: |
+    API for managing DNS TXT records used by ACME dns-01 challenges.
+
+    ## Authentication
+
+    All endpoints except `POST /enroll` require Bearer token authentication.
+    A token is obtained via the enroll endpoint.
+
+    ## Typical workflow
+
+    1. **Enroll** — `POST /enroll` with the server administrator's email
+       address. The server returns a Bearer token.
+    2. **Confirm enrollment** — `POST /enroll/confirm` using OAuth authentication
+       to verify the email address matches the enrollment. This activates the credentials.
+    3. **Add record** — `POST /txt` to create a DNS TXT record
+       (e.g. `_acme-challenge.example.com`) with the ACME validation token.
+    4. **Delete record** — `DELETE /txt` to remove the record after
+       the challenge has been validated.
+    5. **Test record** — `GET /txt/test?name=…` to verify that a TXT
+       record is allowed for the authenticated host.
+    6. **View logs** — `GET /logs` to retrieve recent API log entries for
+       the authenticated host. Users with `access_level >= 4` can retrieve
+       all logs via `GET /logs/all`.
+  version: "1.0.0"
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: https://{hostname}/api
+    description: GNY DNS server
+    variables:
+      hostname:
+        default: dns.example.com
+        description: Hostname of the GNY server
+
+paths:
+  /enroll:
+    post:
+      operationId: enroll
+      summary: Enroll a new server
+      description: |
+        Register a server by providing the server administrator's email
+        address. Returns a temporary enrollment token. The administrator must
+        subsequently confirm the enrollment using `POST /enroll/confirm` with
+        OAuth authentication before the credentials become active.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - mail
+              properties:
+                mail:
+                  type: string
+                  format: email
+                  description: Email address of the server administrator.
+                  example: admin@example.com
+      responses:
+        "200":
+          description: Enrollment successful. Returns API credentials and instructions for confirming enrollment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnrollResponse"
+        "400":
+          description: Invalid request (e.g. missing or malformed email).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Server cannot be enrolled (e.g. IP address blocked or does not have a valid PTR record).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /enroll/confirm:
+    post:
+      operationId: confirmEnrollment
+      summary: Confirm server enrollment
+      description: |
+        Confirm the enrollment of a previously enrolled server using OAuth authentication.
+        The authenticated user's email must match the email address used during the
+        initial enrollment (`POST /enroll`). Upon successful confirmation, the enrollment
+        token becomes active and can be used as Bearer authentication for subsequent API
+        requests.
+
+        The enrollment token must be confirmed within the configured time window
+        (default 32 hours; configurable via `ENROLL_CONFIRM_TIMEOUT_HOURS`). Tokens
+        that are not confirmed within this window are rejected with `400`.
+      security:
+        - oAuth2: [email]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+              properties:
+                token:
+                  type: string
+                  description: Enrollment token returned from the initial enrollment request.
+                  example: gny-a1b2c3d4e5f6
+      responses:
+        "200":
+          description: Enrollment confirmed successfully. Credentials are now active.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "400":
+          description: Invalid request (e.g. missing, invalid, or expired token).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Authentication required or failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Email address does not match the enrollment email.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /txt:
+    post:
+      operationId: addTxtRecord
+      summary: Create a DNS TXT record
+      description: |
+        Add a TXT record with the given name and text content.
+        Used by certbot to publish an ACME dns-01 challenge token.
+      security:
+        - bearerAuth: []
+      parameters:
+         - name: name
+           in: query
+           required: true
+           description: Fully-qualified DNS record name.
+           schema:
+             type: string
+           example: _acme-challenge.example.com
+         - name: text
+           in: query
+           required: true
+           description: TXT record content (the ACME validation token).
+           schema:
+             type: string
+           example: dGVzdC12YWxpZGF0aW9uLXRva2Vu
+      responses:
+        "200":
+          description: Record created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Authentication required or invalid credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Not authorized to manage records for this domain.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    delete:
+      operationId: deleteTxtRecord
+      summary: Delete a DNS TXT record
+      description: |
+        Remove a TXT record matching the given name and text content.
+        Used by certbot to clean up after a dns-01 challenge.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: name
+          in: query
+          required: true
+          description: Fully-qualified DNS record name.
+          schema:
+            type: string
+          example: _acme-challenge.example.com
+        - name: text
+          in: query
+          required: true
+          description: TXT record content (the ACME validation token).
+          schema:
+            type: string
+          example: dGVzdC12YWxpZGF0aW9uLXRva2Vu
+      responses:
+        "200":
+          description: Record deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "401":
+          description: Authentication required or invalid credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Not authorized to manage records for this domain.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /txt/test:
+    get:
+      operationId: testTxtRecord
+      summary: Test TXT record eligibility
+      description: |
+        Verify that the authenticated host is allowed to manage a TXT record
+        with the given name. Returns whether the record is permitted.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: name
+          in: query
+          required: true
+          description: The fully-qualified DNS record name to test.
+          schema:
+            type: string
+          example: _acme-challenge.example.com
+      responses:
+        "200":
+          description: Record eligibility verified.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "401":
+          description: Authentication required or invalid credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Not authorized to manage records for this domain.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /logs:
+    get:
+      operationId: getLogsForHost
+      summary: Get recent log entries for the authenticated host
+      description: |
+        Returns recent API log entries for the enrollment associated with the
+        Bearer token. Results are ordered newest-first.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of entries to return (default 100, max 1000).
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 1000
+      responses:
+        "200":
+          description: Log entries retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogsResponse"
+        "401":
+          description: Authentication required or invalid credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /logs/all:
+    get:
+      operationId: getAllLogs
+      summary: Get all recent log entries (admin)
+      description: |
+        Returns all recent API log entries across all hosts and users.
+        Requires a user OAuth2 Bearer token with `access_level >= 4`.
+        Results are ordered newest-first.
+      security:
+        - oAuth2: [email]
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of entries to return (default 100, max 1000).
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 1000
+      responses:
+        "200":
+          description: Log entries retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogsResponse"
+        "401":
+          description: Authentication required or failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Insufficient access level (requires access_level >= 4).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Bearer token authentication using token from enrollment.
+    oAuth2:
+      type: oauth2
+      description: OAuth2 authentication to verify user email matches enrollment email.
+      flows:
+        authorizationCode:
+          authorizationUrl: https://accounts.google.com/o/oauth2/v2/auth
+          tokenUrl: https://oauth2.googleapis.com/token
+          scopes:
+            email: Access to user email address
+
+  schemas:
+    EnrollResponse:
+      type: object
+      required:
+        - token
+      properties:
+        token:
+          type: string
+          description: Bearer token for subsequent API requests.
+          example: gny-a1b2c3d4e5f6
+
+    SuccessResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+
+    LogEntry:
+      type: object
+      required:
+        - id
+        - method
+        - path
+        - status_code
+        - created_at
+      properties:
+        id:
+          type: integer
+        method:
+          type: string
+          example: POST
+        path:
+          type: string
+          example: /api/txt
+        status_code:
+          type: integer
+          example: 200
+        ip_address:
+          type: string
+          nullable: true
+          example: 203.0.113.42
+        enrollment_id:
+          type: integer
+          nullable: true
+        user_id:
+          type: integer
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    LogsResponse:
+      type: object
+      required:
+        - logs
+      properties:
+        logs:
+          type: array
+          items:
+            $ref: "#/components/schemas/LogEntry"
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Human-readable error message.
+          example: Invalid request
+
+security:
+  - bearerAuth: []
