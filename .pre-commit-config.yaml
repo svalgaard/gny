@@ -21,3 +21,9 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+      - id: openapi-spec-validator
+        name: openapi-spec-validator
+        entry: openapi-spec-validator openapi.yaml
+        language: system
+        pass_filenames: false
+        always_run: true
