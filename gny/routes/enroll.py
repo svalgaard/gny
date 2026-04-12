@@ -142,10 +142,10 @@ async def confirm_enrollment(
         return SuccessResponse()
 
     # Upsert Host for this IP
-    result = await db.execute(
+    host_result = await db.execute(
         select(Host).where(Host.ip_address == enrollment.ip_address)
     )
-    host = result.scalar_one_or_none()
+    host = host_result.scalar_one_or_none()
     now = datetime.now(timezone.utc)
     if host is None:
         new_token = Enrollment.generate_token()

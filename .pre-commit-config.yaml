@@ -13,3 +13,11 @@ repos:
       - id: ruff-check
         args: [--fix]
       - id: ruff-format
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: mypy gny/
+        language: system
+        pass_filenames: false
+        always_run: true
