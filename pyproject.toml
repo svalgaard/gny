@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gny"
-version = "0.0.1"
+version = "0.0.2"
 description = "GNY server"
 readme = "README.md"
 license = {text = "Apache-2.0"}
