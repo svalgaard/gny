@@ -398,7 +398,7 @@ components:
           type: string
           nullable: true
           example: 203.0.113.42
-        enrollment_id:
+        host_id:
           type: integer
           nullable: true
         user_id:
