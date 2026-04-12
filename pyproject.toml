@@ -50,6 +50,9 @@ lint = [
     "openapi-spec-validator",
 ]
 
+[tool.setuptools.packages.find]
+include = ["gny*"]
+
 [tool.ruff]
 target-version = "py311"
 
