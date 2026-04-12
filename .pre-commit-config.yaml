@@ -1,0 +1,15 @@
+repos:
+  - repo: local
+    hooks:
+      - id: check-version-consistency
+        name: Check version consistency
+        entry: python3 dev/check_version_consistency.py
+        language: system
+        pass_filenames: false
+        always_run: true
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.10
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format

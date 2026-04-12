@@ -46,7 +46,8 @@ class Host(Base):
         return hashlib.sha256(token.encode()).hexdigest()
 
     def allows_name(self, name: str) -> bool:
-        """Return True if this host is allowed to manage a TXT record with the given DNS name.
+        """Return True if this host is allowed to manage a TXT record with
+        the given DNS name.
 
         Rules:
           - Strip the leading '_acme-challenge.' label if present.
