@@ -8,6 +8,18 @@ Build-Depends:
  pybuild-plugin-pyproject,
  python3-all,
  python3-setuptools,
+ python3-fastapi,
+ python3-sqlalchemy,
+ python3-pydantic,
+ python3-pydantic-settings,
+ python3-httpx,
+ python3-dnspython,
+ python3-uvicorn,
+ python3-aiomysql,
+ python3-pytest,
+ python3-pytest-asyncio,
+ python3-pytest-cov,
+ python3-aiosqlite,
 Standards-Version: 4.7.0
 Rules-Requires-Root: no
 
