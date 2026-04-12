@@ -1,6 +1,6 @@
 # GNY
 
-***This is currently ALPHA software - lots of bits and pieces are missing.***
+***This is currently ALPHA software — lots of bits and pieces are missing.***
 
 **GNY** is a FastAPI-based server that manages DNS TXT records for ACME `dns-01` certificate challenges. It is designed to be used as a hook target for [certbot](https://certbot.eff.org/) (or any ACME client) when automating TLS certificate issuance and renewal.
 
@@ -21,19 +21,31 @@ GNY exposes a small REST API (documented in [openapi.yaml](openapi.yaml)) that l
 
 ## Installation
 
+### PyPI
+
 ```bash
-pip install .
+pip install gny
 ```
 
-For development (editable install with test/lint extras):
+### Debian package
+
+Pre-built `.deb` packages are attached to each [GitHub Release](https://github.com/svalgaard/gny/releases):
 
 ```bash
-pip install -e ".[test,lint]"
+wget https://github.com/svalgaard/gny/releases/latest/download/gny_<version>_all.deb
+sudo dpkg -i gny_<version>_all.deb
+sudo apt-get install -f   # resolve any missing dependencies
+```
+
+### Docker
+
+```bash
+docker pull ghcr.io/svalgaard/gny:latest
 ```
 
 ## Configuration
 
-Copy `.env` and adjust values:
+Create a `.env` file and set the following variables:
 
 | Variable | Description |
 |---|---|
@@ -46,6 +58,13 @@ Copy `.env` and adjust values:
 | `OIDCClientID` | OIDC client ID |
 | `OIDCClientSecret` | OIDC client secret |
 | `OIDCRedirectURI` | OIDC redirect path (default `/.well-known/sso`) |
+| `MAIL_HOST` | SMTP hostname for outgoing mail (default `localhost`) |
+| `MAIL_PORT` | SMTP port (default `25`) |
+| `MAIL_ENCRYPTION` | SMTP encryption: `tls`, `starttls`, or `none` (default `tls`) |
+| `MAIL_USER` | SMTP username |
+| `MAIL_PASSWORD` | SMTP password |
+| `APP_MAIL_ADDRESS` | From-address for outgoing mail |
+| `ENROLL_CONFIRM_TIMEOUT_HOURS` | Hours before an unconfirmed enrollment expires (default `32`) |
 | `LOG_LEVEL` | Logging level: `debug`, `info`, `warning`, `error` |
 | `DISPLAY_ERRORS` | Show error details in responses (`true` / `false`) |
 
@@ -65,19 +84,29 @@ OIDCProviderMetadataURL=https://login.microsoftonline.com/{tenant_id}/v2.0/.well
 
 ## Running
 
+### Direct
+
 ```bash
 uvicorn gny.main:app --host 0.0.0.0 --port 8000
 ```
 
-For development with auto-reload:
+The database tables are created automatically on startup. Interactive API docs are available at `http://localhost:8000/docs`.
+
+### Docker
 
 ```bash
-uvicorn gny.main:app --reload
+docker run --env-file .env -p 8000:8000 ghcr.io/svalgaard/gny:latest
 ```
 
-The database tables are created automatically on startup.
+## Client Setup
 
-Interactive API docs are available at `http://localhost:8000/docs`.
+The recommended certbot plugin is [certbot-dns-gny](https://pypi.org/project/certbot-dns-gny/), available from PyPI:
+
+```bash
+pip install certbot-dns-gny
+```
+
+Refer to its documentation for credentials file format and certbot integration.
 
 ## API
 
@@ -114,7 +143,6 @@ UPDATE users SET access_level = 1 WHERE mail = 'admin@example.com';
 
 Alternatively, the `/api/enroll/confirm` endpoint accepts an OIDC Bearer token directly and confirms the enrollment programmatically (still requires `access_level >= 1`).
 
-
 ### Managing TXT records
 
 All requests below require `Authorization: Bearer {enrollment_token}`.
@@ -142,22 +170,3 @@ Returns `{"status": "ok"}` if the authenticated server is allowed to manage that
 ### Authorization rules
 
 A server enrolled from IP `1.2.3.4` whose PTR record resolves to `server.example.com` may manage any TXT record whose domain component (after stripping a leading `_acme-challenge.`) equals or is a subdomain of `server.example.com`.
-
-## Project structure
-
-```
-gny/
-├── main.py            # FastAPI application entry point
-├── config.py          # Pydantic settings (reads .env)
-├── database.py        # Async SQLAlchemy engine and session
-├── models.py          # ORM models: Enrollment, TxtRecord, User
-├── auth.py            # Bearer token validation, user upsert
-├── oidc_provider.py   # OIDC Discovery, UserInfo fetch
-├── dns_utils.py       # PTR lookup and domain authorization check
-└── routes/
-    ├── enroll.py      # POST /api/enroll, POST /api/enroll/confirm
-    ├── txt.py         # POST/DELETE /api/txt, GET /api/txt/test
-    └── oidc.py        # GET /api/enroll/start, GET /.well-known/sso
-requirements.txt
-openapi.yaml
-```
