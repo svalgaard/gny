@@ -1,0 +1,21 @@
+#! /bin/bash
+#
+# Start MySQL session to database
+#
+
+ROOT="$(dirname "$0")"/..
+
+source "$ROOT/.env"
+
+# Do not use -p"$DB_PASSWORD"
+# Instead we are using --defaults-file to avoid this warning
+# mysql: [Warning] Using a password on the command line interface can be insecure.
+# The password is still in the evironment, i.e., this is only secure in
+# single-user environments
+mysql \
+    --defaults-file=<(echo '[client]' ; echo "password=\"$DB_PASSWORD\"") \
+    -u "$DB_USERNAME" \
+    "$DB_DATABASE" \
+    "$@"
+#    -h "$DB_HOST" \
+
