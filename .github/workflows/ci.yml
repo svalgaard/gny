@@ -74,6 +74,7 @@ jobs:
     needs: [lint, typecheck, openapi, test]
     steps:
       - uses: actions/checkout@v6
+
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -81,13 +82,17 @@ jobs:
             build-essential \
             debhelper \
             dh-python \
+            equivs \
             pybuild-plugin-pyproject \
             python3-all \
             python3-setuptools
+          sudo mk-build-deps -i -t "apt-get -y --no-install-recommends" -r debian/control
+
       - name: Build deb package
         run: |
           dpkg-buildpackage -us -uc -b
           cp ../*.deb .
+
       - name: Upload deb
         uses: actions/upload-artifact@v7
         with:

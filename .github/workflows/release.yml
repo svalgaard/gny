@@ -82,10 +82,11 @@ jobs:
             build-essential \
             debhelper \
             dh-python \
-            dpkg-dev \
+            equivs \
             pybuild-plugin-pyproject \
             python3-all \
             python3-setuptools
+          sudo mk-build-deps -i -t "apt-get -y --no-install-recommends" -r debian/control
 
       - name: Build deb package
         run: dpkg-buildpackage -us -uc -b
