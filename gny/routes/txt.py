@@ -18,12 +18,13 @@ class ErrorResponse(BaseModel):
     error: str
 
 
-def _require_allowed(name: str, enrollment: Host) -> None:
+async def _require_allowed(name: str, enrollment: Host) -> None:
     """Raise 403 if this enrollment is not allowed to manage `name`."""
-    if not enrollment.allows_name(name):
+    reason = await enrollment.check_name(name)
+    if reason is not None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to manage records for this domain",
+            detail=reason,
         )
 
 
@@ -48,7 +49,7 @@ async def add_txt_record(
             status_code=status.HTTP_400_BAD_REQUEST, detail="name and text are required"
         )
 
-    _require_allowed(name, enrollment)
+    await _require_allowed(name, enrollment)
 
     # Upsert: ignore if identical record already exists
     result = await db.execute(
@@ -81,7 +82,7 @@ async def delete_txt_record(
     db: AsyncSession = Depends(get_db),
 ):
     """Remove a DNS TXT record."""
-    _require_allowed(name, enrollment)
+    await _require_allowed(name, enrollment)
 
     result = await db.execute(
         select(TxtRecord).where(
@@ -112,5 +113,5 @@ async def test_txt_record(
 ):
     """Verify the authenticated host is allowed to manage a TXT record
     with the given name."""
-    _require_allowed(name, enrollment)
+    await _require_allowed(name, enrollment)
     return SuccessResponse()

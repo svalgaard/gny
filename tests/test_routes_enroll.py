@@ -29,7 +29,9 @@ def _make_user(access_level: int = 1) -> User:
 class TestEnroll:
     async def test_enroll_success(self, client, db_session):
         """Valid request with a resolvable PTR record returns a token."""
-        with patch("gny.routes.enroll.get_ptr_record", return_value="host.example.com"):
+        with patch(
+            "gny.routes.enroll.get_unique_ptr_record", return_value="host.example.com"
+        ):
             resp = await client.post(
                 "/api/enroll",
                 json={"mail": "user@example.com"},
@@ -43,7 +45,7 @@ class TestEnroll:
 
     async def test_enroll_no_ptr_returns_409(self, client):
         """IP without a PTR record should be rejected with 409."""
-        with patch("gny.routes.enroll.get_ptr_record", return_value=None):
+        with patch("gny.routes.enroll.get_unique_ptr_record", return_value=None):
             resp = await client.post(
                 "/api/enroll",
                 json={"mail": "user@example.com"},
@@ -53,7 +55,9 @@ class TestEnroll:
 
     async def test_enroll_invalid_email_returns_422(self, client):
         """Malformed email address triggers Pydantic validation error."""
-        with patch("gny.routes.enroll.get_ptr_record", return_value="host.example.com"):
+        with patch(
+            "gny.routes.enroll.get_unique_ptr_record", return_value="host.example.com"
+        ):
             resp = await client.post(
                 "/api/enroll",
                 json={"mail": "not-an-email"},
@@ -216,7 +220,9 @@ class TestConfirmEnrollment:
         assert pending.deleted_at is None
 
         # New enrollment from the same IP (client IP = 127.0.0.1 via ASGI transport)
-        with patch("gny.routes.enroll.get_ptr_record", return_value="host.example.com"):
+        with patch(
+            "gny.routes.enroll.get_unique_ptr_record", return_value="host.example.com"
+        ):
             resp = await client.post(
                 "/api/enroll",
                 json={"mail": "user@example.com"},

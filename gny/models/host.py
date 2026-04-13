@@ -1,12 +1,14 @@
+import fnmatch
 import hashlib
 import secrets
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Integer, String
+from sqlalchemy import JSON, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from gny.database import Base
+from gny.dns_utils import get_a_records, get_unique_ptr_record
 from gny.models._utils import _utcnow
 
 if TYPE_CHECKING:
@@ -20,6 +22,7 @@ class Host(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ip_address: Mapped[str] = mapped_column(String(45), nullable=False, unique=True)
     ptr_record: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    allowed_names: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     token: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
@@ -45,23 +48,43 @@ class Host(Base):
         """Return the SHA-256 hex digest of *token* for safe DB storage."""
         return hashlib.sha256(token.encode()).hexdigest()
 
-    def allows_name(self, name: str) -> bool:
-        """Return True if this host is allowed to manage a TXT record with
-        the given DNS name.
+    async def check_name(self, name: str) -> str | None:
+        """Return None if this host may manage a TXT record with *name*, or
+        a human-readable denial reason string otherwise.
 
-        Rules:
-          - Strip the leading '_acme-challenge.' label if present.
-          - The resulting domain must equal ptr_record or be a subdomain of it.
+        Rules (all must pass):
+          1. The host must have a ptr_record configured.
+          2. *name* must start with '_acme-challenge.'.
+          3. The live PTR record for the host's IP must still match
+             ptr_record and must be the only PTR record for that IP.
+          4. The domain (name with '_acme-challenge.' stripped) must either:
+               a. equal ptr_record, or
+               b. have an A record whose value is the host's IP address, or
+               c. match a glob pattern in allowed_names.
         """
         if not self.ptr_record:
-            return False
+            return "No PTR record configured for this host"
 
         n = name.lower().rstrip(".")
+        if not n.startswith("_acme-challenge."):
+            return "Name must start with _acme-challenge."
+
+        domain = n[len("_acme-challenge.") :]
         ptr = self.ptr_record.lower().rstrip(".")
 
-        if n.startswith("_acme-challenge."):
-            domain = n[len("_acme-challenge.") :]
-        else:
-            domain = n
+        live_ptr = await get_unique_ptr_record(self.ip_address)
+        if live_ptr is None or live_ptr.lower().rstrip(".") != ptr:
+            return "PTR record for host IP has changed or is not unique"
 
-        return domain == ptr or domain.endswith("." + ptr)
+        if domain == ptr:
+            return None
+
+        a_records = await get_a_records(domain)
+        if self.ip_address in a_records:
+            return None
+
+        for pattern in self.allowed_names or []:
+            if fnmatch.fnmatch(domain, pattern.lower()):
+                return None
+
+        return "Name is not authorized for this host"

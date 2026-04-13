@@ -1,5 +1,7 @@
 """API tests for POST/DELETE/GET /api/txt."""
 
+from unittest.mock import AsyncMock, patch
+
 from gny.auth import get_current_enrollment
 from gny.main import app
 from gny.models import Host
@@ -15,6 +17,21 @@ def _make_enrollment(ptr_record: str = "host.example.com") -> Host:
         token="gny-testtoken",
         ip_address="1.2.3.4",
         ptr_record=ptr_record,
+        allowed_names=[],
+    )
+
+
+def _mock_dns(ptr: str | None = "host.example.com", a: list[str] | None = None):
+    """Return a pair of patches for DNS lookups used inside Host.allows_name."""
+    return (
+        patch(
+            "gny.models.host.get_unique_ptr_record",
+            new=AsyncMock(return_value=ptr),
+        ),
+        patch(
+            "gny.models.host.get_a_records",
+            new=AsyncMock(return_value=a or []),
+        ),
     )
 
 
@@ -28,14 +45,16 @@ class TestAddTxtRecord:
         enrollment = _make_enrollment()
         app.dependency_overrides[get_current_enrollment] = lambda: enrollment
 
+        p, a = _mock_dns()
         try:
-            resp = await client.post(
-                "/api/txt",
-                params={
-                    "name": "_acme-challenge.host.example.com",
-                    "text": "some-acme-token",
-                },
-            )
+            with p, a:
+                resp = await client.post(
+                    "/api/txt",
+                    params={
+                        "name": "_acme-challenge.host.example.com",
+                        "text": "some-acme-token",
+                    },
+                )
         finally:
             app.dependency_overrides.pop(get_current_enrollment, None)
 
@@ -48,9 +67,11 @@ class TestAddTxtRecord:
         app.dependency_overrides[get_current_enrollment] = lambda: enrollment
 
         params = {"name": "_acme-challenge.host.example.com", "text": "dedup-token"}
+        p, a = _mock_dns()
         try:
-            resp1 = await client.post("/api/txt", params=params)
-            resp2 = await client.post("/api/txt", params=params)
+            with p, a:
+                resp1 = await client.post("/api/txt", params=params)
+                resp2 = await client.post("/api/txt", params=params)
         finally:
             app.dependency_overrides.pop(get_current_enrollment, None)
 
@@ -61,11 +82,13 @@ class TestAddTxtRecord:
         enrollment = _make_enrollment(ptr_record="host.example.com")
         app.dependency_overrides[get_current_enrollment] = lambda: enrollment
 
+        p, a = _mock_dns()
         try:
-            resp = await client.post(
-                "/api/txt",
-                params={"name": "_acme-challenge.evil.com", "text": "token"},
-            )
+            with p, a:
+                resp = await client.post(
+                    "/api/txt",
+                    params={"name": "_acme-challenge.evil.com", "text": "token"},
+                )
         finally:
             app.dependency_overrides.pop(get_current_enrollment, None)
 
@@ -87,7 +110,9 @@ class TestAddTxtRecord:
 class TestDeleteTxtRecord:
     async def _add_record(self, client, enrollment, name: str, text: str):
         app.dependency_overrides[get_current_enrollment] = lambda: enrollment
-        resp = await client.post("/api/txt", params={"name": name, "text": text})
+        p, a = _mock_dns()
+        with p, a:
+            resp = await client.post("/api/txt", params={"name": name, "text": text})
         app.dependency_overrides.pop(get_current_enrollment, None)
         assert resp.status_code == 200
 
@@ -99,8 +124,12 @@ class TestDeleteTxtRecord:
         await self._add_record(client, enrollment, name, text)
 
         app.dependency_overrides[get_current_enrollment] = lambda: enrollment
+        p, a = _mock_dns()
         try:
-            resp = await client.delete("/api/txt", params={"name": name, "text": text})
+            with p, a:
+                resp = await client.delete(
+                    "/api/txt", params={"name": name, "text": text}
+                )
         finally:
             app.dependency_overrides.pop(get_current_enrollment, None)
 
@@ -111,17 +140,23 @@ class TestDeleteTxtRecord:
         enrollment = _make_enrollment()
         app.dependency_overrides[get_current_enrollment] = lambda: enrollment
 
+        p, a = _mock_dns()
         try:
-            resp = await client.delete(
-                "/api/txt",
-                params={"name": "_acme-challenge.host.example.com", "text": "ghost"},
-            )
+            with p, a:
+                resp = await client.delete(
+                    "/api/txt",
+                    params={
+                        "name": "_acme-challenge.host.example.com",
+                        "text": "ghost",
+                    },
+                )
         finally:
             app.dependency_overrides.pop(get_current_enrollment, None)
 
         assert resp.status_code == 200
 
     async def test_delete_forbidden_domain(self, client, db_session):
+        """Name without _acme-challenge. prefix is rejected before DNS lookup."""
         enrollment = _make_enrollment(ptr_record="host.example.com")
         app.dependency_overrides[get_current_enrollment] = lambda: enrollment
 
@@ -146,17 +181,20 @@ class TestTestTxtRecord:
         enrollment = _make_enrollment()
         app.dependency_overrides[get_current_enrollment] = lambda: enrollment
 
+        p, a = _mock_dns()
         try:
-            resp = await client.get(
-                "/api/txt/test",
-                params={"name": "_acme-challenge.host.example.com"},
-            )
+            with p, a:
+                resp = await client.get(
+                    "/api/txt/test",
+                    params={"name": "_acme-challenge.host.example.com"},
+                )
         finally:
             app.dependency_overrides.pop(get_current_enrollment, None)
 
         assert resp.status_code == 200
 
     async def test_forbidden_domain_returns_403(self, client):
+        """Name without _acme-challenge. prefix is rejected before DNS lookup."""
         enrollment = _make_enrollment(ptr_record="host.example.com")
         app.dependency_overrides[get_current_enrollment] = lambda: enrollment
 

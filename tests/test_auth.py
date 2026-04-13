@@ -1,6 +1,6 @@
 """Tests for gny.auth — upsert_user and the two FastAPI dependency functions."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -127,11 +127,21 @@ class TestGetCurrentEnrollment:
 
     async def test_valid_confirmed_token_returns_enrollment(self, client, db_session):
         token = await self._add_confirmed_enrollment(db_session)
-        resp = await client.get(
-            "/api/txt/test",
-            params={"name": "_acme-challenge.host.example.com"},
-            headers={"Authorization": f"Bearer {token}"},
-        )
+        with (
+            patch(
+                "gny.models.host.get_unique_ptr_record",
+                new=AsyncMock(return_value="host.example.com"),
+            ),
+            patch(
+                "gny.models.host.get_a_records",
+                new=AsyncMock(return_value=[]),
+            ),
+        ):
+            resp = await client.get(
+                "/api/txt/test",
+                params={"name": "_acme-challenge.host.example.com"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
         assert resp.status_code == 200
 
     async def test_valid_token_sets_last_used_at(self, client, db_session):

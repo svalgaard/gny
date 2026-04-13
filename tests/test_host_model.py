@@ -1,57 +1,158 @@
 """Tests for Host model methods — pure unit tests, no DB required."""
 
+from unittest.mock import AsyncMock, patch
+
 from gny.models.host import Host
 
 
-def _host(ptr_record: str | None) -> Host:
-    return Host(ptr_record=ptr_record)
+def _host(
+    ptr_record: str | None,
+    ip_address: str = "1.2.3.4",
+    allowed_names: list[str] | None = None,
+) -> Host:
+    return Host(
+        ptr_record=ptr_record,
+        ip_address=ip_address,
+        allowed_names=allowed_names or [],
+    )
+
+
+def _dns(ptr: str | None = "host.example.com", a: list[str] | None = None):
+    """Return a pair of patches for DNS lookups used inside Host.allows_name."""
+    return (
+        patch(
+            "gny.models.host.get_unique_ptr_record",
+            new=AsyncMock(return_value=ptr),
+        ),
+        patch(
+            "gny.models.host.get_a_records",
+            new=AsyncMock(return_value=a or []),
+        ),
+    )
 
 
 class TestAllowsName:
-    def test_exact_match(self):
-        assert _host("host.example.com").allows_name("host.example.com") is True
+    # --- Failures that don't need DNS ---
 
-    def test_subdomain_allowed(self):
-        assert _host("host.example.com").allows_name("sub.host.example.com") is True
+    async def test_none_ptr_denied(self):
+        reason = await _host(None).check_name("_acme-challenge.host.example.com")
+        assert reason is not None
 
-    def test_unrelated_domain_denied(self):
-        assert _host("host.example.com").allows_name("evil.com") is False
+    async def test_no_acme_prefix_denied(self):
+        reason = await _host("host.example.com").check_name("host.example.com")
+        assert reason is not None
 
-    def test_acme_challenge_prefix_stripped(self):
-        assert (
-            _host("host.example.com").allows_name("_acme-challenge.host.example.com")
-            is True
-        )
+    # --- PTR liveness checks ---
 
-    def test_acme_challenge_subdomain_allowed(self):
-        assert (
-            _host("host.example.com").allows_name(
-                "_acme-challenge.sub.host.example.com"
+    async def test_ptr_changed_denied(self):
+        p, a = _dns(ptr="other.example.com")
+        with p, a:
+            reason = await _host("host.example.com").check_name(
+                "_acme-challenge.host.example.com"
             )
-            is True
-        )
+        assert reason is not None
 
-    def test_acme_challenge_wrong_domain_denied(self):
-        assert (
-            _host("host.example.com").allows_name("_acme-challenge.evil.com") is False
-        )
+    async def test_ptr_unavailable_denied(self):
+        p, a = _dns(ptr=None)
+        with p, a:
+            reason = await _host("host.example.com").check_name(
+                "_acme-challenge.host.example.com"
+            )
+        assert reason is not None
 
-    def test_trailing_dot_stripped(self):
-        assert _host("host.example.com").allows_name("host.example.com.") is True
+    # --- Allowed via PTR match ---
 
-    def test_case_insensitive(self):
-        assert _host("host.example.com").allows_name("HOST.EXAMPLE.COM") is True
+    async def test_exact_ptr_match_allowed(self):
+        p, a = _dns()
+        with p, a:
+            reason = await _host("host.example.com").check_name(
+                "_acme-challenge.host.example.com"
+            )
+        assert reason is None
 
-    def test_none_ptr_denied(self):
-        assert _host(None).allows_name("host.example.com") is False
+    async def test_case_insensitive_allowed(self):
+        p, a = _dns()
+        with p, a:
+            reason = await _host("host.example.com").check_name(
+                "_acme-challenge.HOST.EXAMPLE.COM"
+            )
+        assert reason is None
 
-    def test_partial_suffix_not_allowed(self):
-        # "nothost.example.com" should NOT match ptr "host.example.com"
-        assert _host("host.example.com").allows_name("nothost.example.com") is False
+    async def test_trailing_dot_stripped(self):
+        p, a = _dns()
+        with p, a:
+            reason = await _host("host.example.com").check_name(
+                "_acme-challenge.host.example.com."
+            )
+        assert reason is None
 
-    def test_acme_exact_ptr_match(self):
-        # _acme-challenge.host.example.com with ptr=host.example.com → domain == ptr
-        assert (
-            _host("host.example.com").allows_name("_acme-challenge.host.example.com")
-            is True
-        )
+    # --- Denied: not PTR, no A record, no glob ---
+
+    async def test_unrelated_domain_denied(self):
+        p, a = _dns(a=[])
+        with p, a:
+            reason = await _host("host.example.com").check_name(
+                "_acme-challenge.evil.com"
+            )
+        assert reason is not None
+
+    async def test_partial_suffix_denied(self):
+        # "nothost.example.com" must NOT match ptr "host.example.com"
+        p, a = _dns(a=[])
+        with p, a:
+            reason = await _host("host.example.com").check_name(
+                "_acme-challenge.nothost.example.com"
+            )
+        assert reason is not None
+
+    # --- Allowed via A record ---
+
+    async def test_a_record_pointing_to_host_allowed(self):
+        p, a = _dns(a=["1.2.3.4"])
+        with p, a:
+            reason = await _host("host.example.com").check_name(
+                "_acme-challenge.other.example.com"
+            )
+        assert reason is None
+
+    async def test_a_record_different_ip_denied(self):
+        p, a = _dns(a=["9.9.9.9"])
+        with p, a:
+            reason = await _host("host.example.com").check_name(
+                "_acme-challenge.other.example.com"
+            )
+        assert reason is not None
+
+    # --- Allowed via allowed_names glob ---
+
+    async def test_glob_exact_match_allowed(self):
+        p, a = _dns(a=[])
+        with p, a:
+            reason = await _host(
+                "host.example.com", allowed_names=["other.example.com"]
+            ).check_name("_acme-challenge.other.example.com")
+        assert reason is None
+
+    async def test_glob_wildcard_match_allowed(self):
+        p, a = _dns(a=[])
+        with p, a:
+            reason = await _host(
+                "host.example.com", allowed_names=["*.example.com"]
+            ).check_name("_acme-challenge.anything.example.com")
+        assert reason is None
+
+    async def test_glob_no_match_denied(self):
+        p, a = _dns(a=[])
+        with p, a:
+            reason = await _host(
+                "host.example.com", allowed_names=["*.example.com"]
+            ).check_name("_acme-challenge.evil.org")
+        assert reason is not None
+
+    async def test_empty_allowed_names_denied(self):
+        p, a = _dns(a=[])
+        with p, a:
+            reason = await _host("host.example.com", allowed_names=[]).check_name(
+                "_acme-challenge.other.example.com"
+            )
+        assert reason is not None

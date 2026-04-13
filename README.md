@@ -169,4 +169,14 @@ Returns `{"status": "ok"}` if the authenticated server is allowed to manage that
 
 ### Authorization rules
 
-A server enrolled from IP `1.2.3.4` whose PTR record resolves to `server.example.com` may manage any TXT record whose domain component (after stripping a leading `_acme-challenge.`) equals or is a subdomain of `server.example.com`.
+A server enrolled from IP `1.2.3.4` with PTR record `server.example.com` may manage a TXT record named `_acme-challenge.<domain>` when **all** of the following hold:
+
+1. The host has a PTR record configured in GNY.
+2. The name starts with `_acme-challenge.`.
+3. A live reverse-DNS lookup for the host's IP still returns `server.example.com` as the **sole** PTR record (no changes, no multiple records).
+4. The domain (name with `_acme-challenge.` stripped) satisfies at least one of:
+   - equals `server.example.com` (the PTR record itself), or
+   - has an A record whose value is `1.2.3.4` (the host's IP), or
+   - matches a glob pattern in the host's `allowed_names` list.
+
+The `allowed_names` column on the `Host` record is a JSON list of glob patterns (e.g. `["*.example.com", "other.net"]`) and is empty by default. It can be set directly in the database by an administrator to allow a host to manage certificates for additional names beyond its PTR record and A-record-verified names.
