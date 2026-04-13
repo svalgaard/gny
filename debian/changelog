@@ -1,3 +1,9 @@
+gny (0.0.3-1) unstable; urgency=medium
+
+  * CI/CD flow fixed. Not done yet.
+
+ -- Jens Svalgaard Kohrt <github@svalgaard.net>  Mon, 13 Apr 2025 20:21:00 +0200
+
 gny (0.0.2-1) unstable; urgency=medium
 
   * Partly working setup. Not done.
