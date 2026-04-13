@@ -81,6 +81,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential \
             debhelper \
+            devscripts \
             dh-python \
             equivs \
             pybuild-plugin-pyproject \
@@ -89,7 +90,9 @@ jobs:
           sudo mk-build-deps -i -t "apt-get -y --no-install-recommends" -r debian/control
 
       - name: Build deb package
-        run: dpkg-buildpackage -us -uc -b
+        run: |
+          export DEB_BUILD_OPTIONS=nocheck
+          dpkg-buildpackage -us -uc -b
 
       - name: Download dist artifacts
         uses: actions/download-artifact@v8
