@@ -1,3 +1,4 @@
+import ipaddress
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -39,6 +40,7 @@ class ErrorResponse(BaseModel):
     response_model=EnrollResponse,
     responses={
         400: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
         409: {"model": ErrorResponse},
     },
 )
@@ -53,6 +55,23 @@ async def enroll(
     if not client_host:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot determine client IP"
+        )
+
+    # Restrict enrollment to configured networks (default: RFC 1918)
+    try:
+        client_addr = ipaddress.ip_address(client_host)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid client IP address"
+        )
+    allowed = any(
+        client_addr in ipaddress.ip_network(cidr, strict=False)
+        for cidr in settings.enroll_allowed_networks
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Enrollment not allowed from this IP address",
         )
 
     # Resolve PTR record; reject if none or not unique

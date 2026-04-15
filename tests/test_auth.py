@@ -95,7 +95,7 @@ class TestGetAuthenticatedUser:
 
 
 # IP used by the test client (set explicitly in conftest's ASGITransport).
-_TEST_CLIENT_IP = "127.0.0.1"
+_TEST_CLIENT_IP = "10.0.0.1"
 
 
 class TestGetCurrentEnrollment:

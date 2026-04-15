@@ -65,6 +65,63 @@ class TestEnroll:
 
         assert resp.status_code == 422
 
+    async def test_enroll_rejects_public_ip(self, db_session):
+        """An IP outside the allowed networks is rejected with 403."""
+        from httpx import ASGITransport, AsyncClient
+
+        from gny.database import get_db
+        from gny.main import app
+
+        async def override_get_db():
+            yield db_session
+
+        app.dependency_overrides[get_db] = override_get_db
+        transport = ASGITransport(app=app, client=("203.0.113.1", 50000))
+        try:
+            async with AsyncClient(transport=transport, base_url="http://test") as ac:
+                with patch(
+                    "gny.routes.enroll.get_unique_ptr_record",
+                    return_value="host.example.com",
+                ):
+                    resp = await ac.post(
+                        "/api/enroll", json={"mail": "user@example.com"}
+                    )
+        finally:
+            app.dependency_overrides.clear()
+
+        assert resp.status_code == 403
+
+    async def test_enroll_allows_configured_network(self, db_session):
+        """A public IP within a custom ENROLL_ALLOWED_NETWORKS passes the IP
+        check and proceeds to PTR validation."""
+        from httpx import ASGITransport, AsyncClient
+
+        from gny.config import settings
+        from gny.database import get_db
+        from gny.main import app
+
+        async def override_get_db():
+            yield db_session
+
+        app.dependency_overrides[get_db] = override_get_db
+        transport = ASGITransport(app=app, client=("203.0.113.1", 50000))
+        try:
+            async with AsyncClient(transport=transport, base_url="http://test") as ac:
+                with patch.object(
+                    settings, "enroll_allowed_networks", ["203.0.113.0/24"]
+                ):
+                    with patch(
+                        "gny.routes.enroll.get_unique_ptr_record", return_value=None
+                    ):
+                        resp = await ac.post(
+                            "/api/enroll", json={"mail": "user@example.com"}
+                        )
+        finally:
+            app.dependency_overrides.clear()
+
+        # IP check passed; PTR check fails → 409 (not 403)
+        assert resp.status_code == 409
+
 
 # ---------------------------------------------------------------------------
 # POST /api/enroll/confirm
@@ -206,13 +263,13 @@ class TestConfirmEnrollment:
         same IP."""
         from gny.models import Enrollment
 
-        # The test ASGI transport fixes request.client.host = "127.0.0.1", so
+        # The test ASGI transport fixes request.client.host = "10.0.0.1", so
         # create the pending enrollment with that IP to match.
         token = Enrollment.generate_token()
         pending = Enrollment(
             mail="user@example.com",
             token=Enrollment.hash_token(token),
-            ip_address="127.0.0.1",
+            ip_address="10.0.0.1",
             ptr_record="host.example.com",
         )
         db_session.add(pending)

@@ -65,6 +65,7 @@ Create a `.env` file and set the following variables:
 | `MAIL_PASSWORD` | SMTP password |
 | `APP_MAIL_ADDRESS` | From-address for outgoing mail |
 | `ENROLL_CONFIRM_TIMEOUT_HOURS` | Hours before an unconfirmed enrollment expires (default `32`) |
+| `ENROLL_ALLOWED_NETWORKS` | JSON array of CIDRs from which enrollment is permitted (default `["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]`) |
 | `LOG_LEVEL` | Logging level: `debug`, `info`, `warning`, `error` |
 | `DISPLAY_ERRORS` | Show error details in responses (`true` / `false`) |
 
@@ -123,7 +124,7 @@ Content-Type: application/json
 { "mail": "admin@example.com" }
 ```
 
-Returns a Bearer token, e.g., `gny-ab3df26e48b2467bf705156d4c8914f2`. The server's IP must resolve to a PTR record or the request is rejected with `409`.
+Returns a Bearer token, e.g., `gny-ab3df26e48b2467bf705156d4c8914f2`. The request is rejected with `403` if the server's IP is not within `ENROLL_ALLOWED_NETWORKS`, or with `409` if the IP does not resolve to a unique PTR record.
 
 #### 2. Confirm enrollment
 

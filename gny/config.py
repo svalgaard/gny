@@ -37,6 +37,11 @@ class Settings(BaseSettings):
 
     # Enrollment
     enroll_confirm_timeout_hours: int = 32
+    enroll_allowed_networks: list[str] = [
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+    ]
 
     # Session (web UI)
     session_lifetime_hours: int = 24
