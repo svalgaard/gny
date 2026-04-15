@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gny.database import get_db
-from gny.models import Host, User
+from gny.models import Host, Session, User
 from gny.oidc_provider import UserInfo, get_userinfo
 
 _bearer = HTTPBearer()
@@ -87,3 +87,58 @@ async def get_current_enrollment(
     await db.refresh(enrollment)
     request.state.host_id = enrollment.id
     return enrollment
+
+
+async def get_session_user(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """FastAPI dependency: validate the ``session_id`` cookie, check expiry,
+    and return the associated :class:`User`.  Redirects to ``/login`` if the
+    session is absent or expired."""
+    import logging
+
+    _slog = logging.getLogger(__name__ + ".session")
+
+    session_id = request.cookies.get("session_id")
+    _slog.debug(
+        "get_session_user: path=%s cookies=%s session_id=%s",
+        request.url.path,
+        list(request.cookies.keys()),
+        session_id[:8] + "…" if session_id else None,
+    )
+    if not session_id:
+        _slog.debug("get_session_user: no session_id cookie → /login")
+        raise HTTPException(
+            status_code=status.HTTP_302_FOUND,
+            headers={"Location": "/login"},
+            detail="Login required",
+        )
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        select(Session).where(
+            Session.id == session_id,
+            Session.expires_at > now,
+        )
+    )
+    session = result.scalar_one_or_none()
+    if session is None:
+        _slog.debug(
+            "get_session_user: session_id=%s not found or expired (now=%s) → /login",
+            session_id[:8] + "…",
+            now.isoformat(),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_302_FOUND,
+            headers={"Location": "/login"},
+            detail="Session expired or invalid",
+        )
+    user_result = await db.execute(select(User).where(User.id == session.user_id))
+    user = user_result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_302_FOUND,
+            headers={"Location": "/login"},
+            detail="User not found",
+        )
+    return user

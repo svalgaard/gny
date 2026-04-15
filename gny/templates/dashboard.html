@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Dashboard – GNY Admin{% endblock %}
+{% block content %}
+<h2>Pending Enrollments</h2>
+
+{% if user.access_level < 1 %} <p>
+    <em>
+        Your account (level {{ user.access_level }}) does not have permission to
+        confirm enrollments. An administrator must raise your access level first.
+    </em>
+    </p>
+
+    {% elif enrollments %}
+    <figure>
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>IP Address</th>
+                    <th>PTR Record</th>
+                    <th>Contact Email</th>
+                    <th>Requested (UTC)</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for e in enrollments %}
+                <tr>
+                    <td>{{ e.id }}</td>
+                    <td><code>{{ e.ip_address }}</code></td>
+                    <td><code>{{ e.ptr_record or "—" }}</code></td>
+                    <td>{{ e.mail }}</td>
+                    <td>{{ e.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+                    <td>
+                        <form method="post" action="/enroll/{{ e.id }}/confirm" style="margin:0">
+                            <button type="submit">Confirm</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </figure>
+
+    {% else %}
+    <p>No pending enrollments.</p>
+    {% endif %}
+    {% endblock %}

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Users – GNY Admin{% endblock %}
+{% block content %}
+<h2>Users</h2>
+
+{% if error %}
+<p><em>{{ error }}</em></p>
+
+{% elif users %}
+<figure>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Level</th>
+                <th>Last Login (UTC)</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for u in users %}
+            <tr>
+                <td>{{ u.id }}</td>
+                <td>{{ u.name }}</td>
+                <td>{{ u.mail }}</td>
+                <td>{{ u.access_level }}</td>
+                <td>{{ u.last_login_at.strftime("%Y-%m-%d %H:%M") if u.last_login_at else "—" }}</td>
+                <td>
+                    {% if u.access_level == 0 and u.id != user.id %}
+                    <form method="post" action="/users/{{ u.id }}/grant" style="margin:0">
+                        <button type="submit" class="secondary outline">Grant Access</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</figure>
+
+{% else %}
+<p>No users found.</p>
+{% endif %}
+{% endblock %}

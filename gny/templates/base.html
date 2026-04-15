@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.classless.min.css">
+    <title>{% block title %}GNY Admin{% endblock %}</title>
+</head>
+
+<body>
+    <header>
+        <nav>
+            <ul>
+                <li><strong><a href="/" style="text-decoration:none;color:inherit">GNY Admin</a></strong></li>
+            </ul>
+            <ul>
+                {% if user is defined and user %}
+                <li><a href="/">Dashboard</a></li>
+                {% if user.access_level >= 4 %}
+                <li><a href="/logs">Logs</a></li>
+                <li><a href="/users">Users</a></li>
+                {% endif %}
+                <li><small>{{ user.name }}</small></li>
+                <li><a href="/logout" role="button" class="outline secondary">Logout</a></li>
+                {% endif %}
+            </ul>
+        </nav>
+    </header>
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+</body>
+
+</html>

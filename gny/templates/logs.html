@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Logs – GNY Admin{% endblock %}
+{% block content %}
+<h2>Recent Logs</h2>
+
+{% if error %}
+<p><em>{{ error }}</em></p>
+
+{% elif logs %}
+<figure>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Method</th>
+                <th>Path</th>
+                <th>Status</th>
+                <th>IP</th>
+                <th>Host</th>
+                <th>User</th>
+                <th>Time (UTC)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for log in logs %}
+            <tr>
+                <td>{{ log.id }}</td>
+                <td><code>{{ log.method }}</code></td>
+                <td><code>{{ log.path }}</code></td>
+                <td>{{ log.status_code }}</td>
+                <td>{{ log.ip_address or "—" }}</td>
+                <td>{{ log.host_id or "—" }}</td>
+                <td>{{ log.user_id or "—" }}</td>
+                <td>{{ log.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</figure>
+
+{% else %}
+<p>No log entries found.</p>
+{% endif %}
+{% endblock %}

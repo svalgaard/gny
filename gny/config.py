@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # Enrollment
     enroll_confirm_timeout_hours: int = 32
 
+    # Session (web UI)
+    session_lifetime_hours: int = 24
+
     # Misc
     display_errors: str = "true"
     log_level: str = "info"

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Enrollment Confirmed – GNY Admin{% endblock %}
+{% block content %}
+<article>
+    <h2>Enrollment Confirmed</h2>
+    <p>
+        Host at <code>{{ enrollment.ip_address }}</code>
+        {% if host.ptr_record %}(<code>{{ host.ptr_record }}</code>){% endif %}
+        has been confirmed.
+    </p>
+    <p>
+        The enrollment token that was issued at registration time is now the
+        active Bearer token for this host. The host operator does not need to
+        do anything — the token they already have will work immediately.
+    </p>
+    <p style="margin-top:2rem"><a href="/">← Back to Dashboard</a></p>
+</article>
+{% endblock %}

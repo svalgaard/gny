@@ -1,11 +1,14 @@
 """
-OAuth2 / OIDC callback handler.
+OAuth2 / OIDC login handler.
 
 Flow:
-  1. Client calls GET /api/enroll/start?token={enrollment_token}
-     → redirected to the configured OIDC provider with state={enrollment_token}
-  2. Provider redirects back to GET /.well-known/sso?code=...&state={enrollment_token}
-     → server exchanges code for tokens, verifies email, confirms enrollment.
+  1. User visits GET /login
+     → server generates a short-lived nonce, stores it in an HttpOnly cookie,
+       and redirects to the configured OIDC provider with state="login:{nonce}".
+  2. Provider redirects back to GET /.well-known/sso?code=...&state=login:{nonce}
+     → server verifies the nonce, exchanges the code for tokens, upserts the User
+       record, creates a Session, and sets an HttpOnly session cookie.
+  3. GET /logout clears the session cookie and deletes the DB row.
 
 Supported providers (set OIDCProviderMetadataURL accordingly):
   - Google:    https://accounts.google.com/.well-known/openid-configuration
@@ -13,32 +16,39 @@ Supported providers (set OIDCProviderMetadataURL accordingly):
   - Any other standard OIDC provider.
 """
 
+import hmac
 import logging
+import secrets
 import urllib.parse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import RedirectResponse
+from sqlalchemy import delete as sa_delete
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from gny.auth import upsert_user
 from gny.config import settings
-from gny.database import SessionLocal
-from gny.models import Enrollment, Host
+from gny.database import get_db
+from gny.models import Session
 from gny.oidc_provider import get_provider_config, get_userinfo
 
 router = APIRouter(tags=["oidc"])
 
 _log = logging.getLogger(__name__)
 
+# Lifetime of the login_nonce cookie (seconds)
+_NONCE_MAX_AGE = 300
 
-@router.get("/api/enroll/start")
-async def enroll_start(
-    token: str = Query(..., description="Host token from POST /enroll"),
-):
-    """Redirect the browser to the configured OIDC provider
-    to begin the confirmation flow."""
+
+@router.get("/login")
+async def login():
+    """Start the OIDC login flow.
+
+    Generates a short-lived nonce, stores it in an HttpOnly cookie, and
+    redirects the browser to the configured OIDC provider.
+    """
     config = await get_provider_config()
     auth_url: str = config.get("authorization_endpoint", "")
     if not auth_url:
@@ -47,28 +57,38 @@ async def enroll_start(
             detail="OIDC provider metadata missing authorization_endpoint",
         )
 
+    nonce = secrets.token_hex(16)
     params = {
         "client_id": settings.oidcclientid,
         "redirect_uri": settings.oidc_redirect_uri_full,
         "response_type": "code",
         "scope": "openid email",
-        "state": token,
+        "state": "login:" + nonce,
         "prompt": "select_account",
     }
     url = auth_url + "?" + urllib.parse.urlencode(params)
-    _log.debug("OIDC redirect -> %s", url)
-    return RedirectResponse(url=url, status_code=302)
+    _log.debug("OIDC login redirect -> %s", url)
+
+    response = RedirectResponse(url=url, status_code=302)
+    response.set_cookie(
+        "login_nonce",
+        nonce,
+        max_age=_NONCE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+    )
+    return response
 
 
 @router.get(settings.oidcredirecturi)
 async def oidc_callback(
     request: Request,
+    db: AsyncSession = Depends(get_db),
     code: str | None = Query(default=None),
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
 ):
-    """Handle the OAuth2 authorization code callback
-    from the configured OIDC provider."""
+    """Handle the OAuth2 authorisation code callback from the OIDC provider."""
     if error:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -80,6 +100,22 @@ async def oidc_callback(
             detail="Missing code or state parameter",
         )
 
+    # Only the login flow is supported; state must be "login:{nonce}"
+    if not state.startswith("login:"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid state parameter",
+        )
+    nonce = state.removeprefix("login:")
+
+    # Verify the nonce against the short-lived cookie (constant-time comparison)
+    cookie_nonce = request.cookies.get("login_nonce", "")
+    if not hmac.compare_digest(cookie_nonce, nonce):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Login nonce mismatch; please try logging in again",
+        )
+
     # Discover token endpoint
     config = await get_provider_config()
     token_url: str = config.get("token_endpoint", "")
@@ -89,7 +125,7 @@ async def oidc_callback(
             detail="OIDC provider metadata missing token_endpoint",
         )
 
-    # Exchange authorization code for tokens
+    # Exchange authorisation code for tokens
     async with httpx.AsyncClient(timeout=10) as client:
         token_resp = await client.post(
             token_url,
@@ -114,65 +150,54 @@ async def oidc_callback(
             detail="No access token in response",
         )
 
-    # Get verified user identity via the provider's userinfo endpoint
+    # Resolve user identity via the provider's userinfo endpoint
     user_info = await get_userinfo(access_token)
 
-    # Confirm the enrollment matching state (enrollment token)
-    enrollment_token = state
-    async with SessionLocal() as db:
-        # Upsert the User record (creates on first login, updates on subsequent)
-        user = await upsert_user(db, user_info)
+    # Upsert the User record (creates on first login, updates on subsequent)
+    user = await upsert_user(db, user_info)
+    request.state.user_id = user.id
 
-        if user.access_level < 1:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Insufficient access level to confirm enrollments",
-            )
-
-        result = await db.execute(
-            select(Enrollment).where(
-                Enrollment.token == Enrollment.hash_token(enrollment_token)
-            )
-        )
-        enrollment = result.scalar_one_or_none()
-
-        if enrollment is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid enrollment token in state",
-            )
-
-        if enrollment.confirmed_at is None:
-            now = datetime.now(timezone.utc)
-
-            # Upsert Host for this IP
-            host_result = await db.execute(
-                select(Host).where(Host.ip_address == enrollment.ip_address)
-            )
-            host = host_result.scalar_one_or_none()
-            if host is None:
-                new_token = Enrollment.generate_token()
-                host = Host(
-                    ip_address=enrollment.ip_address,
-                    ptr_record=enrollment.ptr_record,
-                    token=Host.hash_token(new_token),
-                )
-                db.add(host)
-                await db.flush()
-            else:
-                new_token = Enrollment.generate_token()
-                host.token = Host.hash_token(new_token)
-                host.ptr_record = enrollment.ptr_record
-                host.updated_at = now
-
-            enrollment.host_id = host.id
-            enrollment.confirmed_at = now
-            await db.commit()
-
-    html = (
-        "<html><body><h2>Host confirmed!</h2>"
-        f"<p>Confirmed by <strong>{user_info.email}</strong>.</p>"
-        f"<p>The enrollment token <code>{enrollment_token}</code> is now active.</p>"
-        "</body></html>"
+    # Create a new session
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(hours=settings.session_lifetime_hours)
+    session = Session(
+        id=secrets.token_hex(32),
+        user_id=user.id,
+        expires_at=expires_at,
     )
-    return HTMLResponse(content=html)
+    db.add(session)
+    await db.commit()
+
+    _log.info(
+        "User %s (%s) logged in; session %s… created",
+        user.mail,
+        user.id,
+        session.id[:8],
+    )
+
+    response = RedirectResponse(url="/", status_code=302)
+    response.set_cookie(
+        "session_id",
+        session.id,
+        max_age=settings.session_lifetime_hours * 3600,
+        httponly=True,
+        samesite="lax",
+    )
+    response.delete_cookie("login_nonce")
+    return response
+
+
+@router.get("/logout")
+async def logout(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete the current session and redirect to the login page."""
+    session_id = request.cookies.get("session_id")
+    if session_id:
+        await db.execute(sa_delete(Session).where(Session.id == session_id))
+        await db.commit()
+
+    response = RedirectResponse(url="/login", status_code=302)
+    response.delete_cookie("session_id")
+    return response

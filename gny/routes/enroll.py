@@ -148,17 +148,15 @@ async def confirm_enrollment(
     host = host_result.scalar_one_or_none()
     now = datetime.now(timezone.utc)
     if host is None:
-        new_token = Enrollment.generate_token()
         host = Host(
             ip_address=enrollment.ip_address,
             ptr_record=enrollment.ptr_record,
-            token=Host.hash_token(new_token),
+            token=enrollment.token,
         )
         db.add(host)
         await db.flush()
     else:
-        new_token = Enrollment.generate_token()
-        host.token = Host.hash_token(new_token)
+        host.token = enrollment.token
         host.ptr_record = enrollment.ptr_record
         host.updated_at = now
 

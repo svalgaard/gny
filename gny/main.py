@@ -8,7 +8,7 @@ import gny
 from gny.config import settings
 from gny.database import SessionLocal, init_db
 from gny.models import Log
-from gny.routes import enroll, logs, txt
+from gny.routes import enroll, logs, txt, ui
 from gny.routes.oidc import router as oidc_router
 
 logging.basicConfig(level=settings.log_level.upper())
@@ -59,8 +59,10 @@ app.include_router(enroll.router, prefix="/api")
 app.include_router(txt.router, prefix="/api")
 app.include_router(logs.router, prefix="/api")
 
-# OAuth2 callback lives at /.well-known/sso (no /api prefix)
-# and the enroll start helper at /api/enroll/start
+# Web UI (no prefix — serves /, /logs, /users, /enroll/{id}/confirm)
+app.include_router(ui.router)
+
+# OAuth2 callback at /.well-known/sso, /login, /logout
 app.include_router(oidc_router)
 
 
