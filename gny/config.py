@@ -22,12 +22,12 @@ class Settings(BaseSettings):
     mail_password: str = ""
 
     # OIDC (Google OAuth2)
-    oidcprovidermetadataurl: str = (
+    oidc_provider_metadata_url: str = (
         "https://accounts.google.com/.well-known/openid-configuration"
     )
-    oidcclientid: str = ""
-    oidcclientsecret: str = ""
-    oidcredirecturi: str = "/.well-known/sso"
+    oidc_client_id: str = ""
+    oidc_client_secret: str = ""
+    oidc_redirect_uri: str = "/.well-known/sso"
 
     # Database (MariaDB/MySQL)
     db_host: str = "localhost"
@@ -54,9 +54,9 @@ class Settings(BaseSettings):
 
     @property
     def oidc_redirect_uri_full(self) -> str:
-        """Absolute redirect URI computed from APP_URL and OIDCRedirectURI."""
+        """Absolute redirect URI computed from APP_URL and OIDC_REDIRECT_URI."""
         base = self.app_url.rstrip("/")
-        path = self.oidcredirecturi
+        path = self.oidc_redirect_uri
         if not path.startswith("/"):
             path = "/" + path
         return base + path

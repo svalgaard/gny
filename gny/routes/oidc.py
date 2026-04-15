@@ -10,7 +10,7 @@ Flow:
        record, creates a Session, and sets an HttpOnly session cookie.
   3. GET /logout clears the session cookie and deletes the DB row.
 
-Supported providers (set OIDCProviderMetadataURL accordingly):
+Supported providers (set OIDC_PROVIDER_METADATA_URL accordingly):
   - Google:    https://accounts.google.com/.well-known/openid-configuration
   - Azure AD:  https://login.microsoftonline.com/{tenant_id}/v2.0/.well-known/openid-configuration
   - Any other standard OIDC provider.
@@ -59,7 +59,7 @@ async def login():
 
     nonce = secrets.token_hex(16)
     params = {
-        "client_id": settings.oidcclientid,
+        "client_id": settings.oidc_client_id,
         "redirect_uri": settings.oidc_redirect_uri_full,
         "response_type": "code",
         "scope": "openid email",
@@ -80,7 +80,7 @@ async def login():
     return response
 
 
-@router.get(settings.oidcredirecturi)
+@router.get(settings.oidc_redirect_uri)
 async def oidc_callback(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -131,8 +131,8 @@ async def oidc_callback(
             token_url,
             data={
                 "code": code,
-                "client_id": settings.oidcclientid,
-                "client_secret": settings.oidcclientsecret,
+                "client_id": settings.oidc_client_id,
+                "client_secret": settings.oidc_client_secret,
                 "redirect_uri": settings.oidc_redirect_uri_full,
                 "grant_type": "authorization_code",
             },

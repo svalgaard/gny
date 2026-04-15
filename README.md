@@ -54,10 +54,10 @@ Create a `.env` file and set the following variables:
 | `DB_DATABASE` | Database name |
 | `DB_USERNAME` | Database user |
 | `DB_PASSWORD` | Database password |
-| `OIDCProviderMetadataURL` | OIDC Discovery document URL (see below) |
-| `OIDCClientID` | OIDC client ID |
-| `OIDCClientSecret` | OIDC client secret |
-| `OIDCRedirectURI` | OIDC redirect path (default `/.well-known/sso`) |
+| `OIDC_PROVIDER_METADATA_URL` | OIDC Discovery document URL (see below) |
+| `OIDC_CLIENT_ID` | OIDC client ID |
+| `OIDC_CLIENT_SECRET` | OIDC client secret |
+| `OIDC_REDIRECT_URI` | OIDC redirect path (default `/.well-known/sso`) |
 | `MAIL_HOST` | SMTP hostname for outgoing mail (default `localhost`) |
 | `MAIL_PORT` | SMTP port (default `25`) |
 | `MAIL_ENCRYPTION` | SMTP encryption: `tls`, `starttls`, or `none` (default `tls`) |
@@ -68,18 +68,18 @@ Create a `.env` file and set the following variables:
 | `LOG_LEVEL` | Logging level: `debug`, `info`, `warning`, `error` |
 | `DISPLAY_ERRORS` | Show error details in responses (`true` / `false`) |
 
-The redirect URI registered with the OIDC provider must be `{APP_URL}{OIDCRedirectURI}`, e.g. `https://dns.example.com/.well-known/sso`.
+The redirect URI registered with the OIDC provider must be `{APP_URL}{OIDC_REDIRECT_URI}`, e.g. `https://dns.example.com/.well-known/sso`.
 
 ### OIDC provider examples
 
 **Google:**
 ```
-OIDCProviderMetadataURL=https://accounts.google.com/.well-known/openid-configuration
+OIDC_PROVIDER_METADATA_URL=https://accounts.google.com/.well-known/openid-configuration
 ```
 
 **Azure AD / Entra ID** (replace `{tenant_id}` with your directory tenant ID):
 ```
-OIDCProviderMetadataURL=https://login.microsoftonline.com/{tenant_id}/v2.0/.well-known/openid-configuration
+OIDC_PROVIDER_METADATA_URL=https://login.microsoftonline.com/{tenant_id}/v2.0/.well-known/openid-configuration
 ```
 
 ## Running

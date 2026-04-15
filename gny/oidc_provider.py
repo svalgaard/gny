@@ -1,17 +1,17 @@
 """OIDC provider discovery via RFC 8414 / OpenID Connect Discovery.
 
-Fetches the provider metadata document from ``OIDCProviderMetadataURL`` and
+Fetches the provider metadata document from ``OIDC_PROVIDER_METADATA_URL`` and
 caches it in memory for the lifetime of the process.  Any standard OIDC
 provider (Google, Azure AD/Entra ID, Okta, …) is supported as long as the
 metadata URL is set correctly.
 
 Azure example::
 
-    OIDCProviderMetadataURL=https://login.microsoftonline.com/{tenant_id}/v2.0/.well-known/openid-configuration
+    OIDC_PROVIDER_METADATA_URL=https://login.microsoftonline.com/{tenant_id}/v2.0/.well-known/openid-configuration
 
 Google example::
 
-    OIDCProviderMetadataURL=https://accounts.google.com/.well-known/openid-configuration
+    OIDC_PROVIDER_METADATA_URL=https://accounts.google.com/.well-known/openid-configuration
 """
 
 from dataclasses import dataclass
@@ -44,7 +44,7 @@ async def get_provider_config() -> dict:
     global _provider_config
     if _provider_config is None:
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(settings.oidcprovidermetadataurl)
+            resp = await client.get(settings.oidc_provider_metadata_url)
         if resp.status_code != 200:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
