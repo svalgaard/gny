@@ -8,7 +8,7 @@ from sqlalchemy import JSON, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from gny.database import Base
-from gny.dns_utils import get_a_records, get_unique_ptr_record
+from gny.dns_utils import get_a_records, get_ptr_records
 from gny.models._utils import _utcnow
 
 if TYPE_CHECKING:
@@ -53,8 +53,8 @@ class Host(Base):
         a human-readable denial reason string otherwise.
 
         Rules (all must pass):
-          1. The host must have a ptr_record configured.
-          2. *name* must start with '_acme-challenge.'.
+          1. *name* must start with '_acme-challenge.'.
+          2. The host must have a ptr_record configured.
           3. The live PTR record for the host's IP must still match
              ptr_record and must be the only PTR record for that IP.
           4. The domain (name with '_acme-challenge.' stripped) must either:
@@ -62,18 +62,18 @@ class Host(Base):
                b. have an A record whose value is the host's IP address, or
                c. match a glob pattern in allowed_names.
         """
-        if not self.ptr_record:
-            return "No PTR record configured for this host"
-
         n = name.lower().rstrip(".")
         if not n.startswith("_acme-challenge."):
             return "Name must start with _acme-challenge."
-
         domain = n[len("_acme-challenge.") :]
+
+        if not self.ptr_record:
+            return "No PTR record configured for this host"
+
         ptr = self.ptr_record.lower().rstrip(".")
 
-        live_ptr = await get_unique_ptr_record(self.ip_address)
-        if live_ptr is None or live_ptr.lower().rstrip(".") != ptr:
+        live_ptrs = await get_ptr_records(self.ip_address)
+        if len(live_ptrs) != 1 or live_ptrs[0] != ptr:
             return "PTR record for host IP has changed or is not unique"
 
         if domain == ptr:

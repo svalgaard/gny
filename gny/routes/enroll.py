@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gny.auth import get_authenticated_user
 from gny.config import settings
 from gny.database import get_db
-from gny.dns_utils import get_unique_ptr_record
+from gny.dns_utils import get_ptr_records
 from gny.models import Enrollment, Host, User
 
 router = APIRouter(tags=["enrollment"])
@@ -75,12 +75,13 @@ async def enroll(
         )
 
     # Resolve PTR record; reject if none or not unique
-    ptr = await get_unique_ptr_record(client_host)
-    if ptr is None:
+    ptrs = await get_ptr_records(client_host)
+    if len(ptrs) != 1:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="IP address does not have a unique PTR record",
         )
+    ptr = ptrs[0]
 
     # Soft-delete any existing pending enrollments for this IP
     await db.execute(

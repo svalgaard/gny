@@ -129,8 +129,8 @@ class TestGetCurrentEnrollment:
         token = await self._add_confirmed_enrollment(db_session)
         with (
             patch(
-                "gny.models.host.get_unique_ptr_record",
-                new=AsyncMock(return_value="host.example.com"),
+                "gny.models.host.get_ptr_records",
+                new=AsyncMock(return_value=["host.example.com"]),
             ),
             patch(
                 "gny.models.host.get_a_records",

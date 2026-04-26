@@ -19,10 +19,11 @@ def _host(
 
 def _dns(ptr: str | None = "host.example.com", a: list[str] | None = None):
     """Return a pair of patches for DNS lookups used inside Host.allows_name."""
+    ptr_list = [ptr] if ptr is not None else []
     return (
         patch(
-            "gny.models.host.get_unique_ptr_record",
-            new=AsyncMock(return_value=ptr),
+            "gny.models.host.get_ptr_records",
+            new=AsyncMock(return_value=ptr_list),
         ),
         patch(
             "gny.models.host.get_a_records",

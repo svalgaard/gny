@@ -17,21 +17,19 @@ async def get_ptr_record(ip_address: str) -> str | None:
         return None
 
 
-async def get_unique_ptr_record(ip_address: str) -> str | None:
-    """Reverse-DNS lookup; returns the PTR hostname only when there is
-    exactly one PTR record for *ip_address*. Returns None if there are
-    zero or more than one PTR records, or if the lookup fails."""
+async def get_ptr_records(ip_address: str) -> list[str]:
+    """Reverse-DNS lookup; returns all PTR hostnames for *ip_address*
+    as lower-cased strings without trailing dots.
+    Returns an empty list if the lookup fails or yields no results."""
     try:
         loop = asyncio.get_event_loop()
         rev_name = dns.reversename.from_address(ip_address)
         answers = await loop.run_in_executor(
             None, dns.resolver.resolve, rev_name, "PTR"
         )
-        if len(answers) != 1:
-            return None
-        return str(answers[0]).rstrip(".")
+        return [str(a).rstrip(".").lower() for a in answers]
     except Exception:
-        return None
+        return []
 
 
 async def get_a_records(hostname: str) -> list[str]:
