@@ -1,8 +1,10 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 import gny
 from gny.config import settings
@@ -64,6 +66,11 @@ app.include_router(ui.router)
 
 # OAuth2 callback at /.well-known/sso, /login, /logout
 app.include_router(oidc_router)
+
+# Static files (logo, etc.)
+app.mount(
+    "/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static"
+)
 
 
 @app.exception_handler(Exception)

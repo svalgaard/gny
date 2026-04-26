@@ -5,6 +5,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.classless.min.css">
+    <link rel="icon" type="image/svg+xml" href="/static/logo.svg">
     <title>{% block title %}GNY Admin{% endblock %}</title>
 </head>
 
@@ -12,7 +13,7 @@
     <header>
         <nav>
             <ul>
-                <li><strong><a href="/" style="text-decoration:none;color:inherit">GNY Admin</a></strong></li>
+                <li><strong><a href="/" style="text-decoration:none;color:inherit"><img src="/static/logo.svg" alt="GNY" style="height:1.5em;vertical-align:middle;margin-right:0.4em">GNY Admin</a></strong></li>
             </ul>
             <ul>
                 {% if user is defined and user %}
