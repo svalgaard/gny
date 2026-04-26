@@ -1,7 +1,6 @@
 """Server-side rendered web UI routes (Jinja2 templates, session-cookie auth)."""
 
 import logging
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -13,7 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gny.auth import get_session_user
 from gny.config import settings
 from gny.database import get_db
-from gny.models import Enrollment, Host, Log, User
+from gny.models import Enrollment, Log, User
+from gny.models.enrollment import confirm_enrollment_for_host
 
 router = APIRouter(tags=["ui"])
 
@@ -71,38 +71,21 @@ async def confirm_enrollment_ui(
             detail="Enrollment not found or not pending",
         )
 
-    created_at = enrollment.created_at
-    if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=timezone.utc)
-    timeout = timedelta(hours=settings.enroll_confirm_timeout_hours)
-    if datetime.now(timezone.utc) - created_at > timeout:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Enrollment has expired",
-        )
+    # Email match enforcement for level-1 users
+    if user.access_level < 2:
+        if user.mail.lower() != enrollment.mail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Email does not match the enrollment contact email",
+            )
 
-    # Upsert Host for this IP address
-    host_result = await db.execute(
-        select(Host).where(Host.ip_address == enrollment.ip_address)
+    host = await confirm_enrollment_for_host(
+        enrollment,
+        db,
+        settings.enroll_confirm_timeout_hours,
+        confirmed_by_id=user.id,
     )
-    host = host_result.scalar_one_or_none()
-    now = datetime.now(timezone.utc)
 
-    if host is None:
-        host = Host(
-            ip_address=enrollment.ip_address,
-            ptr_record=enrollment.ptr_record,
-            token=enrollment.token,
-        )
-        db.add(host)
-        await db.flush()
-    else:
-        host.token = enrollment.token
-        host.ptr_record = enrollment.ptr_record
-        host.updated_at = now
-
-    enrollment.host_id = host.id
-    enrollment.confirmed_at = now
     request.state.enrollment_id = enrollment.id
     request.state.host_id = host.id
     await db.commit()

@@ -22,6 +22,7 @@ class Host(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ip_address: Mapped[str] = mapped_column(String(45), nullable=False, unique=True)
     ptr_record: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    contact_mail: Mapped[str | None] = mapped_column(String(255), nullable=True)
     allowed_names: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     token: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

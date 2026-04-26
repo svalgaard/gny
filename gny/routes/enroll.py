@@ -1,5 +1,5 @@
 import ipaddress
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr
@@ -10,7 +10,8 @@ from gny.auth import get_authenticated_user
 from gny.config import settings
 from gny.database import get_db
 from gny.dns_utils import get_ptr_records
-from gny.models import Enrollment, Host, User
+from gny.models import Enrollment, User
+from gny.models.enrollment import confirm_enrollment_for_host
 
 router = APIRouter(tags=["enrollment"])
 
@@ -21,14 +22,18 @@ class EnrollRequest(BaseModel):
 
 class EnrollResponse(BaseModel):
     token: str
+    ip_address: str
+    ptr_record: str
 
 
 class ConfirmRequest(BaseModel):
     token: str
 
 
-class SuccessResponse(BaseModel):
+class ConfirmResponse(BaseModel):
     status: str = "ok"
+    host_id: int
+    ip_address: str
 
 
 class ErrorResponse(BaseModel):
@@ -107,12 +112,12 @@ async def enroll(
     request.state.enrollment_id = enrollment.id
     await db.commit()
 
-    return EnrollResponse(token=token)
+    return EnrollResponse(token=token, ip_address=client_host, ptr_record=ptr)
 
 
 @router.post(
     "/enroll/confirm",
-    response_model=SuccessResponse,
+    response_model=ConfirmResponse,
     responses={
         400: {"model": ErrorResponse},
         401: {"model": ErrorResponse},
@@ -126,7 +131,12 @@ async def confirm_enrollment(
     db: AsyncSession = Depends(get_db),
 ):
     """Confirm a pending enrollment.  Requires an OAuth2 Bearer token whose
-    associated user has ``access_level >= 1``."""
+    associated user has ``access_level >= 1``.
+
+    Users with ``access_level == 1`` can only confirm enrollments whose
+    contact email matches their own.  Users with ``access_level >= 2``
+    can confirm any enrollment.
+    """
     if user.access_level < 1:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -144,46 +154,23 @@ async def confirm_enrollment(
             detail="Invalid enrollment token",
         )
 
-    if enrollment.confirmed_at is None:
-        created_at = enrollment.created_at
-        if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=timezone.utc)
-        timeout = timedelta(hours=settings.enroll_confirm_timeout_hours)
-        if datetime.now(timezone.utc) - created_at > timeout:
+    # Email match enforcement for level-1 users
+    if user.access_level < 2:
+        if user.mail.lower() != enrollment.mail.lower():
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Enrollment token has expired",
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Email does not match the enrollment contact email",
             )
 
-    if enrollment.confirmed_at is not None:
-        # Already confirmed — idempotent
-        request.state.enrollment_id = enrollment.id
-        request.state.host_id = enrollment.host_id
-        return SuccessResponse()
-
-    # Upsert Host for this IP
-    host_result = await db.execute(
-        select(Host).where(Host.ip_address == enrollment.ip_address)
+    host = await confirm_enrollment_for_host(
+        enrollment,
+        db,
+        settings.enroll_confirm_timeout_hours,
+        confirmed_by_id=user.id,
     )
-    host = host_result.scalar_one_or_none()
-    now = datetime.now(timezone.utc)
-    if host is None:
-        host = Host(
-            ip_address=enrollment.ip_address,
-            ptr_record=enrollment.ptr_record,
-            token=enrollment.token,
-        )
-        db.add(host)
-        await db.flush()
-    else:
-        host.token = enrollment.token
-        host.ptr_record = enrollment.ptr_record
-        host.updated_at = now
-
-    enrollment.host_id = host.id
-    enrollment.confirmed_at = now
-    await db.commit()
 
     request.state.enrollment_id = enrollment.id
     request.state.host_id = host.id
-    return SuccessResponse()
+    await db.commit()
+
+    return ConfirmResponse(host_id=host.id, ip_address=host.ip_address)

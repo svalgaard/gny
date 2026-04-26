@@ -11,12 +11,12 @@ from gny.models import Enrollment, Host, User
 # ---------------------------------------------------------------------------
 
 
-def _make_user(access_level: int = 1) -> User:
+def _make_user(access_level: int = 1, mail: str = "admin@example.com") -> User:
     return User(
         id=1,
         uid="test-uid",
         name="Admin",
-        mail="admin@example.com",
+        mail=mail,
         access_level=access_level,
     )
 
@@ -42,6 +42,8 @@ class TestEnroll:
         data = resp.json()
         assert "token" in data
         assert data["token"].startswith("gny-")
+        assert data["ip_address"] == "10.0.0.1"
+        assert data["ptr_record"] == "host.example.com"
 
     async def test_enroll_no_ptr_returns_409(self, client):
         """IP without a PTR record should be rejected with 409."""
@@ -157,7 +159,7 @@ class TestConfirmEnrollment:
 
     async def test_confirm_success(self, client, db_session):
         token = await self._create_enrollment(db_session)
-        user = _make_user(access_level=1)
+        user = _make_user(access_level=1, mail="user@example.com")
 
         app.dependency_overrides[get_authenticated_user] = lambda: user
         try:
@@ -166,11 +168,14 @@ class TestConfirmEnrollment:
             app.dependency_overrides.pop(get_authenticated_user, None)
 
         assert resp.status_code == 200
-        assert resp.json() == {"status": "ok"}
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert "host_id" in data
+        assert data["ip_address"] == "1.2.3.4"
 
     async def test_confirm_already_confirmed_is_idempotent(self, client, db_session):
         token = await self._create_enrollment(db_session, confirmed=True)
-        user = _make_user(access_level=1)
+        user = _make_user(access_level=1, mail="user@example.com")
 
         app.dependency_overrides[get_authenticated_user] = lambda: user
         try:
@@ -235,7 +240,7 @@ class TestConfirmEnrollment:
             db_session, confirmed=False, ip_address="1.2.3.4"
         )
 
-        user = _make_user(access_level=1)
+        user = _make_user(access_level=1, mail="user@example.com")
         app.dependency_overrides[get_authenticated_user] = lambda: user
         try:
             resp = await client.post("/api/enroll/confirm", json={"token": new_token})
@@ -304,7 +309,7 @@ class TestConfirmEnrollment:
         db_session.add(enrollment)
         await db_session.commit()
 
-        user = _make_user(access_level=1)
+        user = _make_user(access_level=1, mail="user@example.com")
         app.dependency_overrides[get_authenticated_user] = lambda: user
         try:
             resp = await client.post("/api/enroll/confirm", json={"token": token})
@@ -313,3 +318,105 @@ class TestConfirmEnrollment:
 
         assert resp.status_code == 400
         assert "expired" in resp.json().get("detail", "").lower()
+
+    async def test_confirm_email_mismatch_level1_returns_403(self, client, db_session):
+        """A level-1 user whose email differs from the enrollment email gets 403."""
+        token = await self._create_enrollment(db_session)
+        user = _make_user(access_level=1, mail="other@example.com")
+
+        app.dependency_overrides[get_authenticated_user] = lambda: user
+        try:
+            resp = await client.post("/api/enroll/confirm", json={"token": token})
+        finally:
+            app.dependency_overrides.pop(get_authenticated_user, None)
+
+        assert resp.status_code == 403
+        assert "email" in resp.json().get("detail", "").lower()
+
+    async def test_confirm_email_match_level1_succeeds(self, client, db_session):
+        """A level-1 user whose email matches the enrollment email succeeds."""
+        token = await self._create_enrollment(db_session)
+        user = _make_user(access_level=1, mail="user@example.com")
+
+        app.dependency_overrides[get_authenticated_user] = lambda: user
+        try:
+            resp = await client.post("/api/enroll/confirm", json={"token": token})
+        finally:
+            app.dependency_overrides.pop(get_authenticated_user, None)
+
+        assert resp.status_code == 200
+
+    async def test_confirm_any_email_level2_succeeds(self, client, db_session):
+        """A level-2+ user can confirm any enrollment regardless of email."""
+        token = await self._create_enrollment(db_session)
+        user = _make_user(access_level=2, mail="superadmin@other.org")
+
+        app.dependency_overrides[get_authenticated_user] = lambda: user
+        try:
+            resp = await client.post("/api/enroll/confirm", json={"token": token})
+        finally:
+            app.dependency_overrides.pop(get_authenticated_user, None)
+
+        assert resp.status_code == 200
+
+    async def test_confirm_sets_contact_mail(self, client, db_session):
+        """Confirming an enrollment sets Host.contact_mail from the enrollment email."""
+        from sqlalchemy import select
+
+        token = await self._create_enrollment(db_session)
+        user = _make_user(access_level=1, mail="user@example.com")
+
+        app.dependency_overrides[get_authenticated_user] = lambda: user
+        try:
+            resp = await client.post("/api/enroll/confirm", json={"token": token})
+        finally:
+            app.dependency_overrides.pop(get_authenticated_user, None)
+
+        assert resp.status_code == 200
+        result = await db_session.execute(
+            select(Host).where(Host.ip_address == "1.2.3.4")
+        )
+        host = result.scalar_one()
+        assert host.contact_mail == "user@example.com"
+
+    async def test_reenroll_updates_contact_mail(self, client, db_session):
+        """Re-enrolling with a different email updates Host.contact_mail."""
+        from sqlalchemy import select
+
+        # First enrollment + confirm
+        token1 = await self._create_enrollment(db_session)
+        user = _make_user(access_level=2, mail="admin@example.com")
+
+        app.dependency_overrides[get_authenticated_user] = lambda: user
+        try:
+            resp = await client.post("/api/enroll/confirm", json={"token": token1})
+        finally:
+            app.dependency_overrides.pop(get_authenticated_user, None)
+        assert resp.status_code == 200
+
+        result = await db_session.execute(
+            select(Host).where(Host.ip_address == "1.2.3.4")
+        )
+        host = result.scalar_one()
+        assert host.contact_mail == "user@example.com"
+
+        # Second enrollment with different email
+        token2 = Enrollment.generate_token()
+        enrollment2 = Enrollment(
+            mail="newcontact@example.com",
+            token=Enrollment.hash_token(token2),
+            ip_address="1.2.3.4",
+            ptr_record="host.example.com",
+        )
+        db_session.add(enrollment2)
+        await db_session.commit()
+
+        app.dependency_overrides[get_authenticated_user] = lambda: user
+        try:
+            resp = await client.post("/api/enroll/confirm", json={"token": token2})
+        finally:
+            app.dependency_overrides.pop(get_authenticated_user, None)
+
+        assert resp.status_code == 200
+        await db_session.refresh(host)
+        assert host.contact_mail == "newcontact@example.com"

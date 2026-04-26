@@ -88,10 +88,13 @@ paths:
       summary: Confirm server enrollment
       description: |
         Confirm the enrollment of a previously enrolled server using OAuth authentication.
-        The authenticated user's email must match the email address used during the
-        initial enrollment (`POST /enroll`). Upon successful confirmation, the enrollment
-        token becomes active and can be used as Bearer authentication for subsequent API
-        requests.
+
+        Users with `access_level == 1` can only confirm enrollments whose contact
+        email matches their own OAuth email (case-insensitive).  Users with
+        `access_level >= 2` can confirm any enrollment.
+
+        Upon successful confirmation, the enrollment token becomes active and can be
+        used as Bearer authentication for subsequent API requests.
 
         The enrollment token must be confirmed within the configured time window
         (default 32 hours; configurable via `ENROLL_CONFIRM_TIMEOUT_HOURS`). Tokens
@@ -117,7 +120,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SuccessResponse"
+                $ref: "#/components/schemas/ConfirmResponse"
         "400":
           description: Invalid request (e.g. missing, invalid, or expired token).
           content:
@@ -361,11 +364,40 @@ components:
       type: object
       required:
         - token
+        - ip_address
+        - ptr_record
       properties:
         token:
           type: string
           description: Bearer token for subsequent API requests.
           example: gny-a1b2c3d4e5f6
+        ip_address:
+          type: string
+          description: Detected IP address of the enrolling server.
+          example: "10.0.0.42"
+        ptr_record:
+          type: string
+          description: PTR record resolved for the server's IP address.
+          example: host.example.com
+
+    ConfirmResponse:
+      type: object
+      required:
+        - status
+        - host_id
+        - ip_address
+      properties:
+        status:
+          type: string
+          example: ok
+        host_id:
+          type: integer
+          description: ID of the host that was created or updated.
+          example: 1
+        ip_address:
+          type: string
+          description: IP address of the confirmed host.
+          example: "10.0.0.42"
 
     SuccessResponse:
       type: object
